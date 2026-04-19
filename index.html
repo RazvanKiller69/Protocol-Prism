@@ -76,7 +76,8 @@ const CONFIG = {
     playerRopePull: 0.15,
     ropeShrinkRate: 1.75,
     manualWinchRate: 2.55,
-    enemySpeed: 1.3
+    enemySpeed: 1.3,
+    aMS: 3.5
 };
 
 const MAX_HP = 5;
@@ -350,11 +351,10 @@ function update() {
     if (keys['KeyD'] || keys['ArrowRight']) player.vx += currentAccel;
     if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= currentAccel;
     // --- HARD VELOCITY LIMITER ---
-const ABSOLUTE_MAX_SPEED = 3.5; 
 const currentTotalSpeed = Math.hypot(player.vx, player.vy);
 
-if (currentTotalSpeed > ABSOLUTE_MAX_SPEED) {
-    const ratio = ABSOLUTE_MAX_SPEED / currentTotalSpeed;
+if (currentTotalSpeed > CONFIG.aMS) {
+    const ratio = CONFIG.aMS / currentTotalSpeed;
     player.vx *= ratio;
     player.vy *= ratio;
 }
@@ -1164,6 +1164,180 @@ function gameLoop() {
     
     if (!isGameOver) requestAnimationFrame(gameLoop); 
 }
+/* --- PROTOCOL: PRISM PAUSE MOD --- */
+
+// 1. Inject Styles
+const style = document.createElement('style');
+style.innerHTML = `
+    #pauseMenu {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+        color: #fff; background: rgba(2, 2, 5, 0.98); padding: 25px; 
+        border: 3px solid #3498db; border-radius: 10px; z-index: 100; 
+        display: none; font-family: 'Courier New'; min-width: 350px;
+        box-shadow: 0 0 30px rgba(52, 152, 219, 0.5); pointer-events: auto;
+    }
+    #configSliders { max-height: 400px; overflow-y: auto; padding-right: 15px; margin-top: 15px; }
+    #configSliders::-webkit-scrollbar { width: 6px; }
+    #configSliders::-webkit-scrollbar-thumb { background: #3498db; }
+    .slider-group { margin-bottom: 12px; border-bottom: 1px solid #1a1a2e; padding-bottom: 8px; }
+    .slider-label { display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 4px; }
+    .slider-value { color: #2ecc71; font-weight: bold; }
+    input[type=range] { width: 100%; accent-color: #3498db; cursor: pointer; }
+    .pause-btn { width: 100%; margin-top: 20px; padding: 12px; background: #3498db; border: none; color: white; cursor: pointer; font-family: 'Courier New'; font-weight: bold; }
+`;
+document.head.appendChild(style);
+
+// 2. Inject HTML
+const menuDiv = document.createElement('div');
+menuDiv.id = 'pauseMenu';
+menuDiv.innerHTML = `
+    <h2 style="margin-top: 0; color: #3498db; text-align: center; border-bottom: 1px solid #3498db; padding-bottom: 10px;">SYSTEM PAUSED</h2>
+    <div id="configSliders"></div>
+    <button class="pause-btn" onclick="togglePause()">RESUME (ESC)</button>
+`;
+document.body.appendChild(menuDiv);
+
+// 3. Pause Logic
+let isPaused = false;
+
+function togglePause() {
+    if (isGameOver) return;
+    isPaused = !isPaused;
+    document.getElementById('pauseMenu').style.display = isPaused ? 'block' : 'none';
+    if (isPaused) buildSliders();
+}
+
+function buildSliders() {
+    const container = document.getElementById('configSliders');
+    container.innerHTML = '';
+    for (const key in CONFIG) {
+        const group = document.createElement('div');
+        group.className = 'slider-group';
+        let min = 0, max = 20, step = 0.01;
+        if (key.includes('Friction')) { min = 0.7; max = 1.0; }
+        if (key.includes('Force')) { min = -15; max = 0; }
+        if (key === 'gravity') max = 2;
+        
+        group.innerHTML = `
+            <div class="slider-label"><span>${key.toUpperCase()}</span><span class="slider-value" id="val-${key}">${CONFIG[key]}</span></div>
+            <input type="range" min="${min}" max="${max}" step="${step}" value="${CONFIG[key]}" oninput="CONFIG['${key}']=parseFloat(this.value); document.getElementById('val-${key}').innerText=this.value;">
+        `;
+        container.appendChild(group);
+    }
+}
+
+// 4. Update Listeners
+window.addEventListener('keydown', e => {
+    if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+});
+
+// 5. Override update() to use CONFIG and respect pause
+const originalUpdate = update;
+update = function() {
+    if (isPaused || isGameOver) return;
+    
+    // This is a direct copy-paste of your original logic, 
+    // but replacing the hardcoded speed cap with the one in CONFIG.
+    if (player.x + 1500 > lastGeneratedX) {
+        const segmentWidth = 1200; 
+        generateMapSegment(lastGeneratedX);
+        lastGeneratedX += segmentWidth;
+    }
+
+    let currentAccel = player.grounded ? CONFIG.accel : CONFIG.airAccel;
+    if (keys['KeyD'] || keys['ArrowRight']) player.vx += currentAccel;
+    if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= currentAccel;
+
+    // --- CONFIG-DRIVEN VELOCITY LIMITER ---
+    const currentTotalSpeed = Math.hypot(player.vx, player.vy);
+    if (currentTotalSpeed > CONFIG.absoluteMaxSpeed) {
+        const ratio = CONFIG.absoluteMaxSpeed / currentTotalSpeed;
+        player.vx *= ratio;
+        player.vy *= ratio;
+    }
+
+    // ... The rest of your original physics ...
+    const isJumping = keys['KeyW'] || keys['Space'] || keys['ArrowUp'];
+    if (player.tether) {
+        if (isJumping && player.tether.length > 25) player.tether.length -= CONFIG.manualWinchRate;
+        if (player.tether.length > 25) player.tether.length -= 0.5;
+        applyTetherPhysics(player, CONFIG.playerRopePull);
+    } else if (isJumping && player.grounded) { player.vy = CONFIG.jumpForce; player.grounded = false; }
+
+    player.vy += CONFIG.gravity;
+    let frictionToApply = player.grounded ? CONFIG.friction : CONFIG.airFriction;
+    if (Math.abs(player.vx) > CONFIG.maxSpeed) { frictionToApply = 0.92; }
+    player.vx *= frictionToApply;
+    player.x += player.vx; player.y += player.vy;
+
+    const currentSector = Math.max(0, Math.floor(player.x / 50));
+    if (currentSector > player.highestSector) {
+        const sectorsGained = currentSector - player.highestSector;
+        player.score += sectorsGained * 5; 
+        player.highestSector = currentSector;
+    }
+    
+    if (player.y > canvas.height + 400 || player.hp <= 0) { isGameOver = true; msgEl.style.display = 'block'; }
+    if (player.invuln > 0) player.invuln--;
+
+    player.grounded = false;
+    entities.platforms.forEach(p => {
+        if (checkCollision(player, p) && player.vy > 0 && player.y + player.size - player.vy <= p.y + 10) {
+            player.y = p.y - player.size; player.vy = 0; player.grounded = true;
+        }
+    });
+
+    entities.enemies.forEach((en, i) => {
+        if (en.isDummy) return;
+        if (en.shootTimer > 0) en.shootTimer--;
+        if (en.type === "stalker") handleStalkerAI(en);
+        else if (en.type === "drone") {
+            en.vx = (player.x - en.x) * 0.025;
+            en.vy = (player.y - 280 - en.y) * 0.025;
+            en.x += en.vx; en.y += en.vy;
+            if (en.shootTimer <= 0) {
+                const leadX = player.x + (player.vx * 15);
+                const leadY = player.y + (player.vy * 10);
+                const angle = Math.atan2(leadY - en.y, leadX - en.x);
+                entities.enemyBullets.push({ x: en.x + en.w/2, y: en.y + en.h, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8 + 3 });
+                en.shootTimer = 180;
+            }
+        } else if (en.type === "titan") handleTitanAI(en);
+        else if (en.type === "reaper") handleReaperAI(en);
+        else if (en.type === "specter") handleSpecterAI(en);
+        else if (en.type === "boss") handleBossAI(en);
+
+        if (player.invuln === 0 && !en.dying && checkCollision(player, en)) {
+            player.hp--; player.invuln = 60; shake = 15;
+            player.vx = (player.x < en.x ? -16 : 16); player.vy = -7;
+        }
+    });
+
+    updateProjectiles();
+    cameraX += (player.x - canvas.width/3 - cameraX) * 0.12;
+    shake *= 0.9;
+    stats.distanceTraveled = player.x;
+    entities.enemies = entities.enemies.filter(en => en.dying ? (Date.now() - en.deathTime < en.deathDuration) : true);
+    updateUI();
+};
+
+// 6. Override gameLoop() to handle Pause
+const originalGameLoop = gameLoop;
+gameLoop = function() {
+    if (isPaused) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    const isSlowMo = keys['KeyF'] || keys['KeyE'];
+    const timeStep = isSlowMo ? 0.35 : 1.0;
+    timeAccumulator += timeStep;
+    while (timeAccumulator >= 1) {
+        update();
+        timeAccumulator -= 1;
+    }
+    draw(isSlowMo); 
+    if (!isGameOver) requestAnimationFrame(gameLoop); 
+};
 
 init();
 </script>
