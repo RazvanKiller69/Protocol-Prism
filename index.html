@@ -66,17 +66,17 @@ window.addEventListener('resize', resize);
 resize();
 
 const CONFIG = {
-    gravity: 0.55,
-    accel: 0.5,
-    airAccel: 0.35,
-    maxSpeed: 8,       
+    gravity: 0.45,
+    accel: 0.4,
+    airAccel: 0.25,
+    maxSpeed: 4.5,       
     friction: 0.85,
     airFriction: 0.98,
-    jumpForce: -12.5,
-    playerRopePull: 0.2,
-    ropeShrinkRate: 1.8,
-    manualWinchRate: 7.0,
-    enemySpeed: 2.2
+    jumpForce: -11.0,
+    playerRopePull: 0.15,
+    ropeShrinkRate: 1.5,
+    manualWinchRate: 5.0,
+    enemySpeed: 1.8
 };
 
 const MAX_HP = 5;
@@ -175,8 +175,17 @@ function handleTether(mx, my) {
         if (d < minD) { minD = d; bestA = a; }
     });
     if (bestA) {
-        const pdx = (player.x + player.size/2) - bestA.x, pdy = (player.y + player.size/2) - bestA.y;
-        player.tether = { x: bestA.x, y: bestA.y, length: Math.hypot(pdx, pdy) };
+        const px = player.x + player.size/2;
+        const py = player.y + player.size/2;
+        const currentDist = Math.hypot(px - bestA.x, py - bestA.y);
+
+        // ZIP EFFECT: Set length to be 100px shorter than current distance
+        // This creates a single, strong pull-in effect.
+        player.tether = { 
+            x: bestA.x, 
+            y: bestA.y, 
+            length: Math.max(50, currentDist - 100) 
+        };
     }
 }
 
@@ -319,7 +328,15 @@ function update() {
     let currentAccel = player.grounded ? CONFIG.accel : CONFIG.airAccel;
     if (keys['KeyD'] || keys['ArrowRight']) player.vx += currentAccel;
     if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= currentAccel;
-    if (!player.tether) player.vx = Math.max(-CONFIG.maxSpeed, Math.min(CONFIG.maxSpeed, player.vx));
+    
+    // CAP SWING SPEED SO IT DOESN'T GO INFINITE
+    if (!player.tether) {
+        player.vx = Math.max(-CONFIG.maxSpeed, Math.min(CONFIG.maxSpeed, player.vx));
+    } else {
+        // Cap swing speed slightly higher than run speed
+        player.vx = Math.max(-CONFIG.maxSpeed * 1.5, Math.min(CONFIG.maxSpeed * 1.5, player.vx));
+        player.vy = Math.max(-15, Math.min(15, player.vy)); 
+    }
     
     const isJumping = keys['KeyW'] || keys['Space'] || keys['ArrowUp'];
     if (player.tether) {
@@ -331,7 +348,7 @@ function update() {
     player.vy += CONFIG.gravity;
     player.vx *= (player.grounded ? CONFIG.friction : CONFIG.airFriction);
     player.x += player.vx; player.y += player.vy;
-
+    if (player.vy < -15) player.vy = -15;
     const currentSector = Math.max(0, Math.floor(player.x / 50));
     if (currentSector > player.highestSector) {
         const sectorsGained = currentSector - player.highestSector;
@@ -761,14 +778,23 @@ function applyTetherPhysics(obj, pull) {
     
     if (d < 1) return;
 
-    if (obj.tether.length > 40) obj.tether.length -= CONFIG.ropeShrinkRate;
+    // REMOVED: Automatic rope shrink (no more constant pulling)
+
     if (d > obj.tether.length) { 
-        const f = (d - obj.tether.length) * pull, a = Math.atan2(dy, dx); 
+        const f = (d - obj.tether.length) * pull;
+        const a = Math.atan2(dy, dx); 
+        
         const addVx = Math.cos(a) * f;
         const addVy = Math.sin(a) * f;
         
         if (!isNaN(addVx)) obj.vx += addVx;
         if (!isNaN(addVy)) obj.vy += addVy;
+
+        // --- NEW: ANTI-BOUNCE DAMPING ---
+        // When the rope is pulling you, we slow your velocity down slightly
+        // to prevent the "yo-yo" spring effect.
+        obj.vx *= 0.96;
+        obj.vy *= 0.96;
     }
 }
 
@@ -1050,9 +1076,9 @@ function draw(isSlowMo = false) {
 
 let timeAccumulator = 0;
 function gameLoop() { 
-    // Fixed typo: Listens for either F or E correctly!
     const isSlowMo = keys['KeyF'] || keys['KeyE'];
     
+    // Slow-Mo is now 15% speed (was 35%) for a more pronounced bullet-time effect!
     const timeStep = isSlowMo ? 0.35 : 1.0;
     
     timeAccumulator += timeStep;
