@@ -44,7 +44,7 @@
         <div><strong>Space</strong> - Jump / Rope Pull</div>
         <div><strong>Left Click</strong> - Grapple Rope</div>
         <div><strong>Right Click</strong> - Shoot</div>
-        <div><strong>F</strong> - Adrenaline (Slow-Mo)</div>
+        <div><strong>F</strong> or <strong>E</strong> - Adrenaline (Slow-Mo)</div>
         <div><strong>R</strong> - Restart (Game Over)</div>
     </div>
     <canvas id="gameCanvas"></canvas>
@@ -79,7 +79,7 @@ const CONFIG = {
     enemySpeed: 2.2
 };
 
-const MAX_HP = 5; // Updated to 5!
+const MAX_HP = 5;
 
 const WEAPONS = {
     STANDARD: { name: "Standard", color: "#2ecc71", count: 15, type: "proj", id: "green" },
@@ -108,14 +108,13 @@ function init() {
     player = {
         x: 100, y: 300, vx: 0, vy: 0, size: 30, hp: MAX_HP, invuln: 0,
         ammo: 15, ammoType: WEAPONS.STANDARD,
-        grounded: false, tether: null, color: '#3498db', score: 0
+        grounded: false, tether: null, color: '#3498db', score: 0, highestSector: 0
     };
     entities = { platforms: [], anchors: [], sockets: [], healths: [], enemies: [], bullets: [], lasers: [], particles: [], enemyBullets: [] };
     entities.platforms.push({ x: -200, y: canvas.height - 150, w: 1200, h: 150 });
     entities.anchors.push({ x: 400, y: 150 }, { x: 800, y: 100 });
     lastGeneratedX = 1000;
-    
-    // Reset our time accumulator
+
     timeAccumulator = 0; 
     
     gameLoop(); 
@@ -240,39 +239,70 @@ function generateMapSegment(startX) {
     );
 
     difficultyMultiplier = 1 + (player.score / 5000);
-    let eType;
     
+    // --- GROUND ENEMY PACK SPAWNING ---
+    let spawnCount = 1;
+    if (Math.random() < 0.3 + (difficultyMultiplier * 0.05)) spawnCount = 2;
+    if (Math.random() < 0.1 + (difficultyMultiplier * 0.02)) spawnCount = 3;
+
     if (!bossSpawned && player.score > 5000 && Math.random() < 0.03) {
-        eType = { color: "#ff00ff", hp: 15, type: "boss", size: 80 };
+        let eType = { color: "#ff00ff", hp: 15, type: "boss", size: 80 };
         bossSpawned = true;
+        entities.enemies.push({ 
+            x: platform.x + platform.w/2, y: platform.y - eType.size - 5, w: eType.size, h: eType.size, 
+            vx: 0, vy: 0, hp: eType.hp, type: eType.type, color: eType.color, 
+            tether: null, shootTimer: 180, grounded: false, hitFlash: 0, shieldFlash: 0, stompTimer: 0
+        });
     } else {
-        let weightTitan = player.score >= 500 ? difficultyMultiplier * 1.5 : 0; 
-        let weightAir = 1 + (difficultyMultiplier * 0.8); 
-        let weightSpecter = 2 + (difficultyMultiplier * 0.2); 
-        let weightStalker = 5; 
+        for (let i = 0; i < spawnCount; i++) {
+            let eTypeGround;
+            let weightTitan = player.score >= 500 ? difficultyMultiplier * 1.5 : 0; 
+            let weightSpecter = 2 + (difficultyMultiplier * 0.2); 
+            let weightStalker = 5; 
 
-        let totalWeight = weightTitan + weightAir + weightSpecter + weightStalker;
-        let roll = Math.random() * totalWeight;
+            let totalWeight = weightTitan + weightSpecter + weightStalker;
+            let roll = Math.random() * totalWeight;
 
-        if (roll < weightTitan) {
-            eType = { color: "#f39c12", hp: Math.ceil(6 * difficultyMultiplier), type: "titan", size: 60 };
-        } else if (roll < weightTitan + weightAir) {
-            const newType = Math.random() > 0.5;
-            if (newType) eType = { color: "#ff6b6b", hp: Math.ceil(3 * difficultyMultiplier), type: "reaper", size: 32 };
-            else eType = { color: "#9b59b6", hp: 1, type: "drone", size: 28 };
-        } else if (roll < weightTitan + weightAir + weightSpecter) {
-            eType = { color: "#4a90e2", hp: Math.ceil(2 * difficultyMultiplier), type: "specter", size: 26 };
-        } else {
-            eType = { color: "#e74c3c", hp: Math.ceil(2 * difficultyMultiplier), type: "stalker", size: 30 };
+            if (roll < weightTitan) {
+                eTypeGround = { color: "#f39c12", hp: Math.ceil(6 * difficultyMultiplier), type: "titan", size: 60 };
+            } else if (roll < weightTitan + weightSpecter) {
+                eTypeGround = { color: "#4a90e2", hp: Math.ceil(2 * difficultyMultiplier), type: "specter", size: 26 };
+            } else {
+                eTypeGround = { color: "#e74c3c", hp: Math.ceil(2 * difficultyMultiplier), type: "stalker", size: 30 };
+            }
+
+            let spawnY = (eTypeGround.type === "specter") ? 100 : platform.y - eTypeGround.size - 5;
+            let offsetX = (platform.w / (spawnCount + 1)) * (i + 1);
+
+            entities.enemies.push({ 
+                x: platform.x + offsetX, 
+                y: spawnY, 
+                w: eTypeGround.size, h: eTypeGround.size, 
+                vx: 0, vy: 0, hp: eTypeGround.hp, type: eTypeGround.type, color: eTypeGround.color, 
+                tether: null, shootTimer: 150 + Math.random() * 60, grounded: false, hitFlash: 0, shieldFlash: 0, stompTimer: 0
+            });
         }
     }
 
-    let spawnY = (eType.type === "drone" || eType.type === "specter") ? 100 : platform.y - eType.size - 5;
-    entities.enemies.push({ 
-        x: platform.x + platform.w/2, y: spawnY, w: eType.size, h: eType.size, 
-        vx: 0, vy: 0, hp: eType.hp, type: eType.type, color: eType.color, 
-        tether: null, shootTimer: 180, grounded: false, hitFlash: 0, shieldFlash: 0, stompTimer: 0
-    });
+    // --- INDEPENDENT AIR ENEMY SPAWNING ---
+    let airSpawnChance = 0.4 + (difficultyMultiplier * 0.05); 
+    if (Math.random() < airSpawnChance) {
+        let eTypeAir;
+        const newType = Math.random() > 0.5;
+        if (newType) {
+            eTypeAir = { color: "#ff6b6b", hp: Math.ceil(3 * difficultyMultiplier), type: "reaper", size: 32 };
+        } else {
+            eTypeAir = { color: "#9b59b6", hp: 1, type: "drone", size: 28 };
+        }
+
+        entities.enemies.push({ 
+            x: platform.x + (platform.w * 0.2) + (Math.random() * platform.w * 0.6), 
+            y: 80 + Math.random() * 100, 
+            w: eTypeAir.size, h: eTypeAir.size, 
+            vx: 0, vy: 0, hp: eTypeAir.hp, type: eTypeAir.type, color: eTypeAir.color, 
+            tether: null, shootTimer: 150 + Math.random() * 60, grounded: false, hitFlash: 0, shieldFlash: 0, stompTimer: 0
+        });
+    }
 
     const ammoRoll = Math.random();
     let sType = (ammoRoll > 0.7) ? WEAPONS.LASER : (ammoRoll > 0.4) ? WEAPONS.BOUNCY : WEAPONS.STANDARD;
@@ -302,6 +332,13 @@ function update() {
     player.vx *= (player.grounded ? CONFIG.friction : CONFIG.airFriction);
     player.x += player.vx; player.y += player.vy;
 
+    const currentSector = Math.max(0, Math.floor(player.x / 50));
+    if (currentSector > player.highestSector) {
+        const sectorsGained = currentSector - player.highestSector;
+        player.score += sectorsGained * 5; 
+        player.highestSector = currentSector;
+    }
+    
     if (player.y > canvas.height + 400 || player.hp <= 0) { isGameOver = true; msgEl.style.display = 'block'; }
     if (player.invuln > 0) player.invuln--;
 
@@ -738,7 +775,6 @@ function applyTetherPhysics(obj, pull) {
 function checkCollision(a, b) { return a.x < b.x + b.w && a.x + (a.size || a.w) > b.x && a.y < b.y + b.h && a.y + (a.size || a.h) > b.y; }
 
 function draw(isSlowMo = false) {
-    // MOTION BLUR LOGIC: If in slow-mo, only clear the screen partially so objects leave trails!
     if (isSlowMo) {
         ctx.fillStyle = 'rgba(1, 2, 5, 0.7)'; 
     } else {
@@ -1012,12 +1048,11 @@ function draw(isSlowMo = false) {
     }
 }
 
-// THE NEW GAME LOOP (Time Accumulator for Bullet Time)
 let timeAccumulator = 0;
 function gameLoop() { 
-    const isSlowMo = keys['KeyF'] || keys['KeyF'];
+    // Fixed typo: Listens for either F or E correctly!
+    const isSlowMo = keys['KeyF'] || keys['KeyE'];
     
-    // If Shift is held, time moves at 35% speed
     const timeStep = isSlowMo ? 0.35 : 1.0;
     
     timeAccumulator += timeStep;
