@@ -386,41 +386,67 @@ function handleStalkerAI(en) {
     const targetDir = player.x > en.x ? 1 : -1;
     let atEdge = true;
     const sensorX = en.x + (targetDir * 40);
+    
     entities.platforms.forEach(p => {
         if (sensorX > p.x && sensorX < p.x + p.w && en.y + en.h + 20 > p.y && en.y + en.h + 20 < p.y + p.h + 20) atEdge = false;
     });
 
     if (!en.tether) {
         if (atEdge && en.grounded) {
-            let bestA = null, minD = 500;
+            // FIX: Increased minD from 500 to 1500 so it can see high anchors
+            let bestA = null, minD = 1500; 
+            
             entities.anchors.forEach(a => {
                 const d = Math.hypot(en.x - a.x, en.y - a.y);
-                if (d < minD && ((targetDir === 1 && a.x > en.x) || (targetDir === -1 && a.x < en.x))) { minD = d; bestA = a; }
+                if (d < minD && ((targetDir === 1 && a.x > en.x) || (targetDir === -1 && a.x < en.x))) { 
+                    minD = d; 
+                    bestA = a; 
+                }
             });
+            
             if (bestA) {
                 en.vy = -10; en.grounded = false;
                 en.vx = targetDir * 5;
                 en.tether = { x: bestA.x, y: bestA.y, length: Math.max(50, minD) }; 
-                en.swingTimer = 200;
-            } else { en.vx = -targetDir * CONFIG.enemySpeed; }
-        } else { en.vx = targetDir * CONFIG.enemySpeed; }
-    } else {
-        const swingProgress = 1 - (en.swingTimer / 200);
-        if (swingProgress < 0.7) en.vx += targetDir * 0.08;
-        const maxSwingSpeed = targetDir * 6;
+                en.swingTimer = 80;
+            } else { 
+                en.vx = -targetDir * CONFIG.enemySpeed; 
+            }
+        } else { 
+            en.vx = targetDir * CONFIG.enemySpeed; 
+        }
+    }  else {
+        // Updated to divide by 80 instead of 200
+        const swingProgress = 1 - (en.swingTimer / 80);
+        
+        if (swingProgress < 0.7) en.vx += targetDir * 0.25;
+        
+        const maxSwingSpeed = targetDir * 14;
         if ((targetDir > 0 && en.vx > maxSwingSpeed) || (targetDir < 0 && en.vx < maxSwingSpeed)) en.vx = maxSwingSpeed;
-        applyTetherPhysics(en, CONFIG.enemyRopePull * 0.6);
-        if (--en.swingTimer <= 0 || Math.hypot(player.x - en.x, player.y - en.y) < 100) en.tether = null;
+        
+        applyTetherPhysics(en, 0.35); 
+        
+        // NEW DROP LOGIC: 
+        // 1. Timer runs out
+        // 2. They get close to you (increased to 150)
+        // 3. They cross directly over your X position (drop attack!)
+        const isAbovePlayer = Math.abs(en.x - player.x) < 40;
+        
+        if (--en.swingTimer <= 0 || Math.hypot(player.x - en.x, player.y - en.y) < 150 || isAbovePlayer) { 
+            en.tether = null; 
+        }
     }
-
     en.vy += CONFIG.gravity; en.x += en.vx; en.y += en.vy;
     en.grounded = false;
-    entities.platforms.forEach(p => { if (checkCollision(en, p) && en.vy > 0 && en.y + en.h - en.vy <= p.y + 10) { en.y = p.y - en.h; en.vy = 0; en.grounded = true; } });
+    entities.platforms.forEach(p => { 
+        if (checkCollision(en, p) && en.vy > 0 && en.y + en.h - en.vy <= p.y + 10) { 
+            en.y = p.y - en.h; en.vy = 0; en.grounded = true; 
+        } 
+    });
     
     if (en.x < 0) { en.x = 0; if (en.tether) en.vx = Math.abs(en.vx); }
     if (en.y > canvas.height + 200 && en.tether) en.tether = null;
 }
-
 function handleTitanAI(en) {
     const targetDir = player.x > en.x ? 1 : -1;
     let atEdge = true;
