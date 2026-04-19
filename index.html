@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cube Swing: Hunter Protocol</title>
+    <title>Protocol: Prism</title>
     <style>
         body { margin: 0; overflow: hidden; background: #020205; font-family: 'Courier New', Courier, monospace; }
         canvas { display: block; width: 100vw; height: 100vh; }
@@ -19,7 +19,7 @@
 <body>
     <div id="ui">
         <div style="font-size: 10px; color: #888;">CORE STABILITY</div>
-        <div id="hp" class="hp-bar">♥♥♥</div>
+        <div id="hp" class="hp-bar">♥♥♥♥♥</div>
         <div style="margin-top: 10px; font-size: 10px; color: #888;">ORDNANCE</div>
         <div style="font-size: 10px; color: #888; margin-bottom: 3px;">TYPE:</div>
         <div id="weaponName" class="weapon-name">STANDARD</div>
@@ -35,7 +35,7 @@
     </div>
     <div id="debugPanel" style="position: absolute; bottom: 20px; right: 20px; color: #0f0; background: rgba(0,0,0,0.9); padding: 15px; border: 2px solid #0f0; border-radius: 5px; font-family: 'Courier New'; font-size: 11px; max-width: 300px; display: none; z-index: 15; line-height: 1.6;">
         <div style="font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 5px;">=== DEBUG CHEATS ===</div>
-        <div><strong>L</strong> - Give Laser (3 ammo)</div>
+        <div><strong>L</strong> - Give Laser (15 ammo)</div>
         <div><strong>B</strong> - Give Bouncy Bomb (8 ammo)</div>
         <div><strong>T</strong> - Spawn Test Dummies</div>
         <div><strong>H</strong> - Toggle This Help</div>
@@ -44,6 +44,7 @@
         <div><strong>Space</strong> - Jump / Rope Pull</div>
         <div><strong>Left Click</strong> - Grapple Rope</div>
         <div><strong>Right Click</strong> - Shoot</div>
+        <div><strong>F</strong> - Adrenaline (Slow-Mo)</div>
         <div><strong>R</strong> - Restart (Game Over)</div>
     </div>
     <canvas id="gameCanvas"></canvas>
@@ -78,10 +79,12 @@ const CONFIG = {
     enemySpeed: 2.2
 };
 
+const MAX_HP = 5; // Updated to 5!
+
 const WEAPONS = {
     STANDARD: { name: "Standard", color: "#2ecc71", count: 15, type: "proj", id: "green" },
-    LASER: { name: "Phase Laser", color: "#00d4ff", count: 8, type: "hitscan", id: "cyan" },
-    BOUNCY: { name: "Bouncy Bomb", color: "#f1c40f", count: 12, type: "bouncy", id: "yellow" }
+    LASER: { name: "Phase Laser", color: "#00d4ff", count: 15, type: "hitscan", id: "cyan" },
+    BOUNCY: { name: "Bouncy Bomb", color: "#f1c40f", count: 8, type: "bouncy", id: "yellow" }
 };
 
 const WEAPON_TYPES = {
@@ -103,7 +106,7 @@ function init() {
     difficultyMultiplier = 1;
     highScore = localStorage.getItem('highScore') ? parseInt(localStorage.getItem('highScore')) : 0;
     player = {
-        x: 100, y: 300, vx: 0, vy: 0, size: 30, hp: 10, invuln: 0,
+        x: 100, y: 300, vx: 0, vy: 0, size: 30, hp: MAX_HP, invuln: 0,
         ammo: 15, ammoType: WEAPONS.STANDARD,
         grounded: false, tether: null, color: '#3498db', score: 0
     };
@@ -111,6 +114,10 @@ function init() {
     entities.platforms.push({ x: -200, y: canvas.height - 150, w: 1200, h: 150 });
     entities.anchors.push({ x: 400, y: 150 }, { x: 800, y: 100 });
     lastGeneratedX = 1000;
+    
+    // Reset our time accumulator
+    timeAccumulator = 0; 
+    
     gameLoop(); 
 }
 
@@ -196,9 +203,6 @@ function shoot(mx, my) {
 }
 
 function damageEnemy(en, index, dmg, weaponId) {
-    // The invulnerability check has been completely removed!
-    // Now every weapon applies damage directly.
-    
     en.hp -= dmg;
     spawnParticles(en.x + en.w/2, en.y + en.h/2, en.color, 5);
     
@@ -242,26 +246,14 @@ function generateMapSegment(startX) {
         eType = { color: "#ff00ff", hp: 15, type: "boss", size: 80 };
         bossSpawned = true;
     } else {
-        // --- FIXED: Weighted Probability Spawn System ---
-        // Dynamically adjust the "weight" of each enemy based on score
-        
-        // Titans only start appearing after 500 points, then rapidly become more common
         let weightTitan = player.score >= 500 ? difficultyMultiplier * 1.5 : 0; 
-        
-        // Air enemies slowly become more common
         let weightAir = 1 + (difficultyMultiplier * 0.8); 
-        
-        // Specters get a slight bump over time
         let weightSpecter = 2 + (difficultyMultiplier * 0.2); 
-        
-        // Stalkers act as the baseline common enemy
         let weightStalker = 5; 
 
-        // Calculate total pool size and roll
         let totalWeight = weightTitan + weightAir + weightSpecter + weightStalker;
         let roll = Math.random() * totalWeight;
 
-        // Select enemy based on the weighted roll
         if (roll < weightTitan) {
             eType = { color: "#f39c12", hp: Math.ceil(6 * difficultyMultiplier), type: "titan", size: 60 };
         } else if (roll < weightTitan + weightAir) {
@@ -273,7 +265,6 @@ function generateMapSegment(startX) {
         } else {
             eType = { color: "#e74c3c", hp: Math.ceil(2 * difficultyMultiplier), type: "stalker", size: 30 };
         }
-        // ------------------------------------------------
     }
 
     let spawnY = (eType.type === "drone" || eType.type === "specter") ? 100 : platform.y - eType.size - 5;
@@ -393,7 +384,6 @@ function handleStalkerAI(en) {
 
     if (!en.tether) {
         if (atEdge && en.grounded) {
-            // FIX: Increased minD from 500 to 1500 so it can see high anchors
             let bestA = null, minD = 1500; 
             
             entities.anchors.forEach(a => {
@@ -408,15 +398,14 @@ function handleStalkerAI(en) {
                 en.vy = -10; en.grounded = false;
                 en.vx = targetDir * 5;
                 en.tether = { x: bestA.x, y: bestA.y, length: Math.max(50, minD) }; 
-                en.swingTimer = 80;
+                en.swingTimer = 80; 
             } else { 
                 en.vx = -targetDir * CONFIG.enemySpeed; 
             }
         } else { 
             en.vx = targetDir * CONFIG.enemySpeed; 
         }
-    }  else {
-        // Updated to divide by 80 instead of 200
+    } else {
         const swingProgress = 1 - (en.swingTimer / 80);
         
         if (swingProgress < 0.7) en.vx += targetDir * 0.25;
@@ -426,16 +415,13 @@ function handleStalkerAI(en) {
         
         applyTetherPhysics(en, 0.35); 
         
-        // NEW DROP LOGIC: 
-        // 1. Timer runs out
-        // 2. They get close to you (increased to 150)
-        // 3. They cross directly over your X position (drop attack!)
         const isAbovePlayer = Math.abs(en.x - player.x) < 40;
         
         if (--en.swingTimer <= 0 || Math.hypot(player.x - en.x, player.y - en.y) < 150 || isAbovePlayer) { 
             en.tether = null; 
         }
     }
+
     en.vy += CONFIG.gravity; en.x += en.vx; en.y += en.vy;
     en.grounded = false;
     entities.platforms.forEach(p => { 
@@ -447,30 +433,78 @@ function handleStalkerAI(en) {
     if (en.x < 0) { en.x = 0; if (en.tether) en.vx = Math.abs(en.vx); }
     if (en.y > canvas.height + 200 && en.tether) en.tether = null;
 }
+
 function handleTitanAI(en) {
     const targetDir = player.x > en.x ? 1 : -1;
     let atEdge = true;
     const sensorX = en.x + (targetDir * 50);
+
     entities.platforms.forEach(p => {
         if (sensorX > p.x && sensorX < p.x + p.w && en.y + en.h + 20 > p.y && en.y + en.h + 20 < p.y + p.h + 20) atEdge = false;
     });
 
-    if (atEdge && en.grounded) {
+    if (en.chargeCooldown === undefined) en.chargeCooldown = 0;
+    if (en.chargeState === undefined) en.chargeState = 0; 
+    if (en.chargeTimer === undefined) en.chargeTimer = 0;
+
+    const dist = Math.abs(player.x - en.x);
+    const onSameLevel = Math.abs(player.y - en.y) < 100;
+
+    if (atEdge && en.grounded && en.chargeState !== 2) {
         en.vx = 0; 
     } else {
-        const onSameLevel = Math.abs(player.y - en.y) < 100;
-        if (onSameLevel && Math.abs(player.x - en.x) < 400 && en.grounded) {
-            en.vx = 0;
-            if (++en.stompTimer > 80) {
-                shake = 25; spawnParticles(en.x + en.w/2, en.y + en.h, "#f39c12", 25, 6);
-                if (Math.abs(player.x - en.x) < 350) { player.vx = (player.x < en.x ? -22 : 22); player.vy = -6; }
+        if (en.chargeState === 0) {
+            if (onSameLevel && dist < 120 && en.grounded) {
+                en.vx = 0;
+                if (++en.stompTimer > 60) {
+                    shake = 25; spawnParticles(en.x + en.w/2, en.y + en.h, "#f39c12", 25, 6);
+                    if (dist < 180) { player.vx = (player.x < en.x ? -22 : 22); player.vy = -6; }
+                    en.stompTimer = 0;
+                }
+            } 
+            else if (onSameLevel && dist >= 120 && dist < 600 && en.grounded && en.chargeCooldown <= 0) {
+                en.chargeState = 1;
+                en.chargeTimer = 30; 
+                en.vx = 0; 
+            } 
+            else {
+                en.vx = targetDir * (CONFIG.enemySpeed * 0.7); 
                 en.stompTimer = 0;
             }
-        } else { en.vx = targetDir * (CONFIG.enemySpeed * 0.5); en.stompTimer = 0; }
+        }
+        else if (en.chargeState === 1) {
+            en.vx = 0;
+            en.hitFlash = 2; 
+            spawnParticles(en.x + en.w/2, en.y + en.h, "#fff", 1, 2);
+            
+            if (--en.chargeTimer <= 0) {
+                en.chargeState = 2;
+                en.chargeTimer = 35; 
+                en.chargeDir = targetDir; 
+                shake = 15; 
+            }
+        }
+        else if (en.chargeState === 2) {
+            en.vx = en.chargeDir * (CONFIG.enemySpeed * 4.5); 
+            spawnParticles(en.x + en.w/2, en.y + en.h, "#f39c12", 3, 4); 
+            
+            if (atEdge || --en.chargeTimer <= 0) {
+                en.chargeState = 0;
+                en.chargeCooldown = 150; 
+                en.vx = 0;
+            }
+        }
     }
+
+    if (en.chargeCooldown > 0) en.chargeCooldown--;
+
     en.vy += CONFIG.gravity; en.x += en.vx; en.y += en.vy;
     en.grounded = false;
-    entities.platforms.forEach(p => { if (checkCollision(en, p) && en.vy > 0 && en.y + en.h - en.vy <= p.y + 10) { en.y = p.y - en.h; en.vy = 0; en.grounded = true; } });
+    entities.platforms.forEach(p => { 
+        if (checkCollision(en, p) && en.vy > 0 && en.y + en.h - en.vy <= p.y + 10) { 
+            en.y = p.y - en.h; en.vy = 0; en.grounded = true; 
+        } 
+    });
 }
 
 function handleReaperAI(en) {
@@ -598,7 +632,7 @@ function updateProjectiles() {
             if (b.isLaser && !b.hasHit) {
                 let hitEnemy = null, hitIndex = -1;
                 entities.enemies.forEach((en, ei) => {
-                    if (!b.hitEnemies.includes(ei) && !en.dying && Math.hypot(b.x - (en.x + en.w/2), b.y - (en.y + en.h/2)) < (en.w/2 + 15)) {
+                    if (!b.hitEnemies.includes(ei) && !en.dying && Math.hypot(b.x - (en.x + en.w/2), b.y - (en.y + en.h/2)) < (en.w/2 + 35)) {
                         hitEnemy = en;
                         hitIndex = ei;
                     }
@@ -645,11 +679,9 @@ function updateProjectiles() {
                     damageEnemy(nextTarget, nextTargetIndex, 3, "cyan");
                     shake = 8;
                 } else {
-                    // Prevent generic hit detection from constantly re-triggering while trails fade
                     if (b.hitSegments.length === 0) {
                         b.life = -1;
                     } else {
-                        // Move laser origin offscreen so it doesn't cause additional hits
                         b.x = -9999; 
                         b.y = -9999;
                     }
@@ -657,7 +689,6 @@ function updateProjectiles() {
             }
         }
         
-        // Skip generic hit detection for laser so it doesn't instantly delete fading segments
         if (!b.isLaser) {
             entities.enemies.forEach((en, ei) => { 
                 if (!en.dying && Math.hypot(b.x - (en.x + en.w/2), b.y - (en.y + en.h/2)) < (en.w/2 + 10)) { 
@@ -673,11 +704,11 @@ function updateProjectiles() {
     entities.particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.025; if (p.life <= 0) entities.particles.splice(i, 1); });
     entities.lasers.forEach((l, i) => { if (--l.life <= 0) entities.lasers.splice(i, 1); });
     entities.sockets.forEach(s => { if (s.active && Math.hypot(player.x - s.x, player.y - s.y) < 60) { player.ammoType = s.weapon; player.ammo = s.weapon.count; s.active = false; } });
-    entities.healths.forEach(h => { if (h.active && Math.hypot(player.x - h.x, player.y - h.y) < 60) { if (player.hp < 5) { player.hp++; spawnParticles(h.x, h.y, '#e74c3c', 12, 5); h.active = false; } } });
+    entities.healths.forEach(h => { if (h.active && Math.hypot(player.x - h.x, player.y - h.y) < 60) { if (player.hp < MAX_HP) { player.hp++; spawnParticles(h.x, h.y, '#e74c3c', 12, 5); h.active = false; } } });
 }
 
 function updateUI() {
-    hpEl.innerText = '♥'.repeat(Math.max(0, player.hp)) + '♡'.repeat(Math.max(0, 5 - player.hp));
+    hpEl.innerText = '♥'.repeat(Math.max(0, player.hp)) + '♡'.repeat(Math.max(0, MAX_HP - player.hp));
     ammoEl.innerText = player.ammo;
     const weaponType = WEAPON_TYPES[player.ammoType.type] || "UNKNOWN";
     weaponNameEl.innerText = weaponType;
@@ -706,8 +737,14 @@ function applyTetherPhysics(obj, pull) {
 
 function checkCollision(a, b) { return a.x < b.x + b.w && a.x + (a.size || a.w) > b.x && a.y < b.y + b.h && a.y + (a.size || a.h) > b.y; }
 
-function draw() {
-    ctx.fillStyle = '#020205'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+function draw(isSlowMo = false) {
+    // MOTION BLUR LOGIC: If in slow-mo, only clear the screen partially so objects leave trails!
+    if (isSlowMo) {
+        ctx.fillStyle = 'rgba(1, 2, 5, 0.7)'; 
+    } else {
+        ctx.fillStyle = '#020205'; 
+    }
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     ctx.fillStyle = 'rgba(100, 150, 200, 0.1)';
     for (let i = 0; i < 5; i++) {
@@ -854,8 +891,6 @@ function draw() {
     ctx.globalAlpha = 1;
     
     entities.bullets.forEach(b => { 
-        
-        // --- ADDED LASER SEGMENT RENDERER ---
         if (b.isLaser && b.hitSegments) {
             b.hitSegments.forEach(seg => {
                 ctx.strokeStyle = "rgba(0, 212, 255, " + (seg.life / 15) * 0.4 + ")"; 
@@ -870,7 +905,6 @@ function draw() {
             });
             b.hitSegments = b.hitSegments.filter(s => s.life > 0);
         }
-        // ------------------------------------
 
         if (b.isLaser) {
             if (!b.hasHit) {
@@ -930,6 +964,18 @@ function draw() {
     }
     ctx.restore();
     
+    // UI OVERLAY FOR ADRENALINE MODE
+    if (isSlowMo && !isGameOver) {
+        ctx.fillStyle = "rgba(0, 212, 255, 0.05)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "#00d4ff";
+        ctx.font = "bold 20px 'Courier New'";
+        ctx.textAlign = "center";
+        ctx.letterSpacing = "5px";
+        ctx.fillText(">> ADRENALINE ACTIVE <<", canvas.width / 2, canvas.height - 50);
+    }
+    
     if (isGameOver) {
         const timeSurvived = Math.floor((Date.now() - gameStartTime) / 1000);
         const distanceTraveled = Math.floor(stats.distanceTraveled / 50);
@@ -966,7 +1012,25 @@ function draw() {
     }
 }
 
-function gameLoop() { update(); draw(); if (!isGameOver) requestAnimationFrame(gameLoop); }
+// THE NEW GAME LOOP (Time Accumulator for Bullet Time)
+let timeAccumulator = 0;
+function gameLoop() { 
+    const isSlowMo = keys['KeyF'] || keys['KeyF'];
+    
+    // If Shift is held, time moves at 35% speed
+    const timeStep = isSlowMo ? 0.35 : 1.0;
+    
+    timeAccumulator += timeStep;
+    
+    while (timeAccumulator >= 1) {
+        update();
+        timeAccumulator -= 1;
+    }
+    
+    draw(isSlowMo); 
+    
+    if (!isGameOver) requestAnimationFrame(gameLoop); 
+}
 
 init();
 </script>
